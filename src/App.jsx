@@ -566,11 +566,15 @@ export default function App() {
       {calculatorOpen && (
         <PriceCalculator
           items={items}
+          initialCart={cart}
+          initialManualDiscount={manualDiscount}
           onClose={() => setCalculatorOpen(false)}
-          onAdd={(id, quantity) => {
-            updateQuantity(id, quantity);
+          onApply={(nextCart, nextManualDiscount) => {
+            setCart(nextCart);
+            setManualDiscount(nextManualDiscount);
             setCalculatorOpen(false);
-            setToast(`${quantity}개를 주문에 담았습니다.`);
+            const count = Object.values(nextCart).reduce((sum, quantity) => sum + quantity, 0);
+            setToast(`${count}개 상품 구성을 주문에 적용했습니다.`);
           }}
         />
       )}
@@ -580,67 +584,105 @@ export default function App() {
   );
 }
 
-function PriceCalculator({ items, onClose, onAdd }) {
+function PriceCalculator({ items, initialCart, initialManualDiscount, onClose, onApply }) {
   const availableItems = items.filter((item) => item.stock > 0);
   const [selectedId, setSelectedId] = useState(availableItems[0]?.id ?? "");
-  const selectedItem = items.find((item) => String(item.id) === String(selectedId));
-  const [quantity, setQuantity] = useState(selectedItem ? 1 : 0);
-  const safeQuantity = selectedItem
-    ? Math.min(selectedItem.stock, Math.max(1, Number(quantity) || 1))
-    : 0;
-  const calculatedTotal = selectedItem ? selectedItem.price * safeQuantity : 0;
+  const [quote, setQuote] = useState(() => ({ ...initialCart }));
+  const [quoteManualDiscount, setQuoteManualDiscount] = useState(initialManualDiscount);
+  const quoteItems = items
+    .filter((item) => quote[item.id])
+    .map((item) => ({ ...item, quantity: quote[item.id] }));
+  const quoteCount = quoteItems.reduce((sum, item) => sum + item.quantity, 0);
+  const quoteSubtotal = quoteItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const quoteAutoDiscount = quoteItems.length >= 3 ? 1000 : 0;
+  const quoteDiscount = quoteSubtotal ? (quoteManualDiscount ? 1000 : quoteAutoDiscount) : 0;
+  const quoteTotal = Math.max(0, quoteSubtotal - quoteDiscount);
 
-  function selectProduct(id) {
+  function changeQuantity(id, delta) {
     const item = items.find((entry) => String(entry.id) === String(id));
-    setSelectedId(id);
-    setQuantity(item ? 1 : 0);
+    if (!item) return;
+    setQuote((current) => {
+      const nextQuantity = Math.min(item.stock, Math.max(0, (current[id] || 0) + delta));
+      const next = { ...current };
+      if (nextQuantity) next[id] = nextQuantity;
+      else delete next[id];
+      return next;
+    });
+  }
+
+  function addSelected() {
+    if (selectedId === "") return;
+    changeQuantity(selectedId, 1);
   }
 
   return (
     <div className="fixed inset-0 z-[65] flex items-end justify-center bg-ink/50 backdrop-blur-sm sm:items-center sm:p-4">
       <button className="absolute inset-0" onClick={onClose} aria-label="가격 계산기 닫기" />
-      <section role="dialog" aria-modal="true" aria-labelledby="calculator-title" className="safe-bottom relative z-10 w-full rounded-t-[28px] bg-white p-5 shadow-2xl sm:max-w-lg sm:rounded-[28px] sm:p-6">
-        <div className="mb-5 flex items-center justify-between">
+      <section role="dialog" aria-modal="true" aria-labelledby="calculator-title" className="safe-bottom relative z-10 flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-[28px] bg-white shadow-2xl sm:max-w-2xl sm:rounded-[28px]">
+        <div className="flex items-center justify-between border-b border-line px-5 py-4 sm:px-6">
           <div>
             <p className="font-mono text-xs font-bold text-secondary">PRICE CALCULATOR</p>
-            <h2 id="calculator-title" className="text-2xl font-extrabold">가격 미리 계산</h2>
+            <h2 id="calculator-title" className="text-2xl font-extrabold">여러 상품 가격 계산</h2>
           </div>
           <button onClick={onClose} className="grid h-11 w-11 place-items-center rounded-xl bg-soft" aria-label="닫기"><X /></button>
         </div>
 
-        {!selectedItem ? (
+        {!availableItems.length ? (
           <EmptyState text="계산할 수 있는 재고가 없습니다." />
         ) : (
-          <>
-            <EditorField label="상품 선택">
-              <select value={selectedId} onChange={(event) => selectProduct(event.target.value)} className="editor-input">
-                {availableItems.map((item) => <option key={item.id} value={item.id}>{item.name} · {money(item.price)}</option>)}
-              </select>
-            </EditorField>
-
-            <div className="mt-4">
-              <span className="mb-2 block text-sm font-bold">몇 개를 구매하나요?</span>
-              <div className="grid grid-cols-[56px_1fr_56px] items-center gap-3">
-                <button type="button" onClick={() => setQuantity((value) => Math.max(1, Number(value) - 1))} className="grid h-14 place-items-center rounded-xl bg-soft text-primary" aria-label="수량 감소"><Minus /></button>
-                <input aria-label="구매 수량" type="number" inputMode="numeric" min="1" max={selectedItem.stock} value={quantity} onChange={(event) => setQuantity(Math.min(selectedItem.stock, Math.max(1, Number(event.target.value) || 1)))} className="h-14 w-full rounded-xl border border-line text-center font-mono text-2xl font-extrabold outline-none focus:border-primary" />
-                <button type="button" onClick={() => setQuantity((value) => Math.min(selectedItem.stock, Number(value) + 1))} className="grid h-14 place-items-center rounded-xl bg-primary text-white" aria-label="수량 증가"><Plus /></button>
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="border-b border-line p-4 sm:px-6">
+              <span className="mb-2 block text-sm font-bold">상품 추가</span>
+              <div className="grid grid-cols-[1fr_56px] gap-2">
+                <select value={selectedId} onChange={(event) => setSelectedId(event.target.value)} className="editor-input min-w-0">
+                  {availableItems.map((item) => <option key={item.id} value={item.id}>{item.name} · {money(item.price)} · 재고 {item.stock}</option>)}
+                </select>
+                <button onClick={addSelected} className="grid h-14 place-items-center rounded-xl bg-primary text-white" aria-label="선택 상품 추가"><Plus /></button>
               </div>
             </div>
 
-            <div className="mt-5 rounded-2xl bg-gradient-to-br from-indigo-50 to-violet-100 p-5">
-              <div className="flex justify-between text-sm font-bold text-muted"><span>단가</span><span className="font-mono">{money(selectedItem.price)}</span></div>
-              <div className="mt-2 flex justify-between text-sm font-bold text-muted"><span>수량</span><span className="font-mono">{safeQuantity}개</span></div>
-              <div className="mt-4 flex items-end justify-between border-t border-primary/15 pt-4 text-primary">
-                <span className="font-extrabold">예상 금액</span>
-                <span className="font-mono text-3xl font-extrabold" aria-live="polite">{money(calculatedTotal)}</span>
-              </div>
-              <p className="mt-2 text-right text-xs text-muted">구매 후 남은 재고 {selectedItem.stock - safeQuantity}개</p>
+            <div className="min-h-[150px] flex-1 overflow-y-auto px-4 sm:px-6">
+              {!quoteItems.length ? (
+                <div className="grid min-h-40 place-items-center text-center text-muted">
+                  <div><Calculator className="mx-auto mb-2 opacity-30" /><p className="font-bold">계산할 상품을 추가해주세요.</p></div>
+                </div>
+              ) : quoteItems.map((item) => (
+                <div key={item.id} className="flex items-center gap-3 border-b border-dashed border-line py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-bold">{item.name}</p>
+                    <p className="font-mono text-xs text-muted">{money(item.price)} × {item.quantity} = {money(item.price * item.quantity)}</p>
+                  </div>
+                  <div className="flex items-center rounded-xl bg-soft">
+                    <button onClick={() => changeQuantity(item.id, -1)} className="grid h-11 w-11 place-items-center text-primary" aria-label={`${item.name} 수량 감소`}><Minus size={17} /></button>
+                    <span className="w-8 text-center font-mono font-bold">{item.quantity}</span>
+                    <button onClick={() => changeQuantity(item.id, 1)} disabled={item.quantity >= item.stock} className="grid h-11 w-11 place-items-center text-primary disabled:text-line" aria-label={`${item.name} 수량 증가`}><Plus size={17} /></button>
+                  </div>
+                  <button onClick={() => setQuote((current) => { const next = { ...current }; delete next[item.id]; return next; })} className="grid h-11 w-11 place-items-center rounded-xl text-danger" aria-label={`${item.name} 삭제`}><Trash2 size={18} /></button>
+                </div>
+              ))}
             </div>
 
-            <button onClick={() => onAdd(selectedItem.id, safeQuantity)} className="mt-4 flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary to-secondary font-bold text-white shadow-glow">
-              <ShoppingBag size={20} aria-hidden="true" />이 수량을 주문에 담기
-            </button>
-          </>
+            <div className="border-t border-line bg-soft/70 p-4 sm:px-6">
+              <button onClick={() => setQuoteManualDiscount((value) => !value)} disabled={!quoteSubtotal} className={`mb-3 flex min-h-11 w-full items-center justify-between rounded-xl border px-3 text-sm font-bold disabled:opacity-50 ${quoteDiscount ? "border-red-200 bg-red-50 text-danger" : "border-line bg-white text-muted"}`}>
+                <span className="flex items-center gap-2"><Tag size={17} />세트 할인 {quoteManualDiscount ? "수동 적용" : quoteAutoDiscount ? "자동 적용" : "적용"}</span>
+                <span>{quoteDiscount ? `-${money(quoteDiscount)}` : "3종 이상 자동"}</span>
+              </button>
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-sm text-muted"><span>총 {quoteCount}개 · {quoteItems.length}종</span><span className="font-mono">{money(quoteSubtotal)}</span></div>
+                <div className="flex justify-between text-sm text-danger"><span>할인</span><span className="font-mono">-{money(quoteDiscount)}</span></div>
+                <div className="flex items-end justify-between pt-1 text-primary">
+                  <span className="font-extrabold">최종 예상 금액</span>
+                  <span className="font-mono text-3xl font-extrabold" aria-live="polite">{money(quoteTotal)}</span>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-[0.7fr_1.3fr] gap-2">
+                <button onClick={() => { setQuote({}); setQuoteManualDiscount(false); }} disabled={!quoteCount} className="min-h-14 rounded-xl border border-danger bg-white font-bold text-danger disabled:opacity-40">비우기</button>
+                <button onClick={() => onApply(quote, quoteManualDiscount)} disabled={!quoteCount} className="flex min-h-14 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary to-secondary font-bold text-white shadow-glow disabled:bg-line">
+                  <ShoppingBag size={20} aria-hidden="true" />주문에 적용
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </section>
     </div>
