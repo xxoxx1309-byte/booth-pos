@@ -1,0 +1,11 @@
+{
+  "rules": {
+    ".read": "auth != null",
+    ".write": "auth != null",
+    "booths": {
+      "$boothId": {
+        ".validate": "$boothId.matches(/^[a-z0-9]{8,64}$/)"
+      }
+    }
+  }
+}

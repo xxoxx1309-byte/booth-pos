@@ -123,6 +123,16 @@ export async function saveAccessibility(accessibility) {
   await writeSetting("accessibility", accessibility);
 }
 
+export async function saveSales(sales) {
+  const database = await openDatabase();
+  const transaction = database.transaction("sales", "readwrite");
+  const store = transaction.objectStore("sales");
+  store.clear();
+  sales.forEach((sale) => store.put(sale));
+  await transactionDone(transaction);
+  database.close();
+}
+
 export async function commitSale(sale, products) {
   const database = await openDatabase();
   const transaction = database.transaction(["products", "sales"], "readwrite");

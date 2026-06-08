@@ -11,6 +11,7 @@ import {
   Download,
   Image,
   LayoutGrid,
+  Link2,
   Minus,
   Package,
   Plus,
@@ -23,8 +24,11 @@ import {
   Tag,
   Trash2,
   Upload,
+  Wifi,
+  WifiOff,
   X,
 } from "lucide-react";
+import { commitCloudSale, connectCloud, replaceCloudData, watchNetwork } from "./cloud";
 import {
   clearDatabase,
   commitSale,
@@ -33,6 +37,7 @@ import {
   restoreBackup,
   saveAccessibility,
   saveProducts,
+  saveSales,
 } from "./db";
 
 const INITIAL_ITEMS = [
@@ -74,6 +79,10 @@ export default function App() {
   const [toast, setToast] = useState("");
   const [databaseReady, setDatabaseReady] = useState(false);
   const [accessibility, setAccessibility] = useState({ largeText: false, highContrast: false });
+  const [syncKey, setSyncKey] = useState(() => localStorage.getItem("booth-pos-sync-key") || "");
+  const [syncStatus, setSyncStatus] = useState("local");
+  const [networkOnline, setNetworkOnline] = useState(navigator.onLine);
+  const cloudConnection = useRef(null);
 
   const cartItems = useMemo(
     () => items.filter((item) => cart[item.id]).map((item) => ({ ...item, quantity: cart[item.id] })),
@@ -108,6 +117,10 @@ export default function App() {
       })
       .catch(() => setToast("로컬 데이터베이스를 열지 못했습니다."));
   }, []);
+
+  useEffect(() => watchNetwork(setNetworkOnline), []);
+
+  useEffect(() => () => cloudConnection.current?.disconnect(), []);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -168,17 +181,80 @@ export default function App() {
       stock: Math.max(0, item.stock - (cart[item.id] || 0)),
     }));
     try {
-      await commitSale(sale, nextItems);
-    } catch {
-      setToast("판매 저장에 실패했습니다. 다시 시도해주세요.");
+      if (cloudConnection.current) {
+        if (!networkOnline) throw new Error("인터넷 연결 후 판매를 완료해주세요.");
+        await commitCloudSale(cloudConnection.current.boothId, sale, cart);
+      } else {
+        await commitSale(sale, nextItems);
+      }
+    } catch (error) {
+      setToast(error.message || "판매 저장에 실패했습니다. 다시 시도해주세요.");
       return;
     }
-    setSales((current) => [sale, ...current]);
-    setItems(nextItems);
+    if (!cloudConnection.current) {
+      setSales((current) => [sale, ...current]);
+      setItems(nextItems);
+    }
     resetTransaction();
     setCartOpen(false);
-    setToast("판매가 완료되었습니다.");
+    setToast(cloudConnection.current ? "판매 완료 · 모든 기기에 동기화됩니다." : "판매가 완료되었습니다.");
   }
+
+  async function startSync(key = syncKey) {
+    const normalizedKey = key.trim();
+    if (!networkOnline) {
+      setToast("인터넷 연결을 확인해주세요.");
+      return;
+    }
+    setSyncStatus("connecting");
+    cloudConnection.current?.disconnect();
+    cloudConnection.current = null;
+    try {
+      const connection = await connectCloud(normalizedKey, items, {
+        onProducts: (products) => {
+          setItems((current) => {
+            const next = current.map((item) => ({
+              ...item,
+              stock: products.find((entry) => entry.id === item.id)?.stock ?? item.stock,
+            }));
+            saveProducts(next);
+            return next;
+          });
+        },
+        onSales: (nextSales) => {
+          setSales(nextSales);
+          saveSales(nextSales);
+        },
+        onError: () => {
+          setSyncStatus("error");
+          setToast("동기화 키가 올바르지 않거나 연결이 끊겼습니다.");
+        },
+      });
+      cloudConnection.current = connection;
+      localStorage.setItem("booth-pos-sync-key", normalizedKey);
+      setSyncKey(normalizedKey);
+      setSyncStatus("synced");
+      setToast("실시간 동기화가 연결되었습니다.");
+    } catch (error) {
+      setSyncStatus("error");
+      setToast(error.message || "실시간 동기화 연결에 실패했습니다.");
+    }
+  }
+
+  function stopSync() {
+    cloudConnection.current?.disconnect();
+    cloudConnection.current = null;
+    localStorage.removeItem("booth-pos-sync-key");
+    setSyncKey("");
+    setSyncStatus("local");
+    setToast("이 기기의 실시간 연결을 해제했습니다.");
+  }
+
+  useEffect(() => {
+    if (databaseReady && syncKey && !cloudConnection.current) startSync(syncKey);
+    // The saved key should auto-connect once after the local database is ready.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [databaseReady]);
 
   function switchView(view) {
     setActiveView(view);
@@ -221,6 +297,9 @@ export default function App() {
       );
       setSales(data.sales);
       setAccessibility(data.accessibility);
+      if (cloudConnection.current) {
+        await replaceCloudData(cloudConnection.current.boothId, data.products, data.sales);
+      }
       resetTransaction();
       setToast("백업을 복원했습니다.");
     } catch (error) {
@@ -254,8 +333,9 @@ export default function App() {
             <span className="font-serif text-[22px] tracking-wide text-primary">BOOTH POS</span>
           </button>
           <div className="flex items-center gap-2">
-            <span className="hidden rounded-full bg-soft px-3 py-2 font-mono text-xs text-primary sm:block" role="status">
-              {databaseReady ? "LOCAL DB READY" : "DB LOADING"}
+            <span className={`hidden items-center gap-2 rounded-full px-3 py-2 font-mono text-xs sm:flex ${syncStatus === "synced" && networkOnline ? "bg-emerald-100 text-emerald-800" : "bg-soft text-primary"}`} role="status">
+              {syncStatus === "synced" && networkOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
+              {syncStatus === "synced" ? (networkOnline ? "LIVE SYNC" : "OFFLINE") : databaseReady ? "LOCAL MODE" : "DB LOADING"}
             </span>
             <button onClick={() => switchView("settings")} className="grid h-11 w-11 place-items-center rounded-xl border border-line bg-white text-primary shadow-card" aria-label="설정">
               <CircleUserRound size={22} />
@@ -328,6 +408,12 @@ export default function App() {
               onImport={importBackup}
               onReset={resetAllData}
               salesCount={sales.length}
+              syncKey={syncKey}
+              syncStatus={syncStatus}
+              networkOnline={networkOnline}
+              onSyncKeyChange={setSyncKey}
+              onSyncConnect={startSync}
+              onSyncDisconnect={stopSync}
             />
           )}
         </main>
@@ -511,11 +597,69 @@ function InventoryView({ items }) {
   );
 }
 
-function SettingsView({ accessibility, onAccessibilityChange, onExport, onImport, onReset, salesCount }) {
+function SettingsView({
+  accessibility,
+  onAccessibilityChange,
+  onExport,
+  onImport,
+  onReset,
+  salesCount,
+  syncKey,
+  syncStatus,
+  networkOnline,
+  onSyncKeyChange,
+  onSyncConnect,
+  onSyncDisconnect,
+}) {
   const fileInput = useRef(null);
   return (
     <PageShell eyebrow="Preferences" title="설정">
       <div className="max-w-2xl space-y-6">
+        <section aria-labelledby="sync-title">
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <div>
+              <h2 id="sync-title" className="text-lg font-extrabold">기기 실시간 연동</h2>
+              <p className="mt-1 text-sm text-muted">
+                {syncStatus === "synced"
+                  ? networkOnline ? "연결됨 · 변경 사항이 모든 기기에 즉시 반영됩니다." : "오프라인 · 연결이 돌아오면 다시 동기화됩니다."
+                  : "모든 기기에서 같은 동기화 키를 입력하세요."}
+              </p>
+            </div>
+            {syncStatus === "synced" && networkOnline
+              ? <Wifi className="text-emerald-700" aria-hidden="true" />
+              : <Link2 className="text-primary" aria-hidden="true" />}
+          </div>
+          <div className="rounded-2xl border border-line bg-white p-4 shadow-card">
+            <label className="block">
+              <span className="text-sm font-bold">동기화 키</span>
+              <span className="mt-1 block text-xs leading-5 text-muted">12자 이상의 비밀 키입니다. 신뢰하는 기기에만 입력하세요.</span>
+              <input
+                type="password"
+                value={syncKey}
+                disabled={syncStatus === "synced"}
+                onChange={(event) => onSyncKeyChange(event.target.value)}
+                autoComplete="off"
+                className="mt-3 h-14 w-full rounded-xl border border-line bg-white px-4 font-mono outline-none focus:border-primary disabled:bg-soft"
+                placeholder="동기화 키 입력"
+              />
+            </label>
+            {syncStatus === "synced" ? (
+              <button onClick={onSyncDisconnect} className="mt-3 min-h-14 w-full rounded-xl border-2 border-danger bg-white px-5 font-bold text-danger">
+                이 기기 연결 해제
+              </button>
+            ) : (
+              <button
+                onClick={() => onSyncConnect()}
+                disabled={syncStatus === "connecting" || !networkOnline}
+                className="mt-3 flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 font-bold text-white shadow-glow disabled:bg-line"
+              >
+                <Link2 aria-hidden="true" />
+                {syncStatus === "connecting" ? "연결 중..." : "실시간 연동 시작"}
+              </button>
+            )}
+          </div>
+        </section>
+
         <section aria-labelledby="accessibility-title">
           <h2 id="accessibility-title" className="mb-3 text-lg font-extrabold">접근성</h2>
           <div className="overflow-hidden rounded-2xl border border-line bg-white shadow-card">
