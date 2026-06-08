@@ -38,6 +38,21 @@ button {
   touch-action: manipulation;
 }
 
+.editor-input {
+  min-height: 3.5rem;
+  width: 100%;
+  border: 1px solid #dce3ef;
+  border-radius: 0.75rem;
+  background: white;
+  padding: 0 1rem;
+  color: #0b1c30;
+  outline: none;
+}
+
+.editor-input:focus {
+  border-color: #3858b7;
+}
+
 button:focus-visible,
 input:focus-visible,
 a:focus-visible {

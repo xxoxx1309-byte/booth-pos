@@ -35,17 +35,44 @@ async function seedProducts(boothId, initialProducts) {
   const snapshot = await getDocs(products);
   const existingIds = new Set(snapshot.docs.map((entry) => entry.id));
   const missingProducts = initialProducts.filter(({ id }) => !existingIds.has(String(id)));
-  if (!missingProducts.length) return;
+  const incompleteProducts = snapshot.docs.filter((entry) => !entry.data().name);
+  if (!missingProducts.length && !incompleteProducts.length) return;
 
   const batch = writeBatch(firestore);
-  missingProducts.forEach(({ id, stock }) => {
-    batch.set(doc(products, String(id)), { id, stock });
+  missingProducts.forEach((product) => {
+    batch.set(doc(products, String(product.id)), product);
+  });
+  incompleteProducts.forEach((entry) => {
+    const fallback = initialProducts.find(({ id }) => String(id) === entry.id);
+    if (fallback) batch.set(entry.ref, { ...fallback, ...entry.data() });
   });
   batch.set(doc(firestore, "booths", boothId), {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
   await batch.commit();
+}
+
+export async function saveCloudProducts(boothId, products) {
+  const productsCollection = collection(firestore, "booths", boothId, "products");
+  const currentProducts = await getDocs(productsCollection);
+  const desiredIds = new Set(products.map(({ id }) => String(id)));
+  const operations = [];
+
+  currentProducts.docs
+    .filter((entry) => !desiredIds.has(entry.id))
+    .forEach((entry) => operations.push((batch) => batch.delete(entry.ref)));
+  products.forEach((product) => {
+    operations.push((batch) =>
+      batch.set(doc(productsCollection, String(product.id)), product),
+    );
+  });
+
+  for (let index = 0; index < operations.length; index += BATCH_LIMIT) {
+    const batch = writeBatch(firestore);
+    operations.slice(index, index + BATCH_LIMIT).forEach((operation) => operation(batch));
+    await batch.commit();
+  }
 }
 
 export async function connectCloud(syncKey, initialProducts, handlers) {
@@ -128,9 +155,9 @@ export async function replaceCloudData(boothId, products, sales) {
   currentSales.docs
     .filter((entry) => !desiredSaleIds.has(entry.id))
     .forEach((entry) => operations.push((batch) => batch.delete(entry.ref)));
-  products.forEach(({ id, stock }) => {
+  products.forEach((product) => {
     operations.push((batch) =>
-      batch.set(doc(productsCollection, String(id)), { id, stock }),
+      batch.set(doc(productsCollection, String(product.id)), product),
     );
   });
   sales.forEach((sale) => {

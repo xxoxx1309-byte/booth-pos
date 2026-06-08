@@ -14,6 +14,7 @@ import {
   Link2,
   Minus,
   Package,
+  Pencil,
   Plus,
   RotateCcw,
   Search,
@@ -28,7 +29,13 @@ import {
   WifiOff,
   X,
 } from "lucide-react";
-import { commitCloudSale, connectCloud, replaceCloudData, watchNetwork } from "./cloud";
+import {
+  commitCloudSale,
+  connectCloud,
+  replaceCloudData,
+  saveCloudProducts,
+  watchNetwork,
+} from "./cloud";
 import {
   clearDatabase,
   commitSale,
@@ -41,15 +48,35 @@ import {
 } from "./db";
 
 const INITIAL_ITEMS = [
-  { id: 1, name: "고양이 아크릴 키링", price: 5000, category: "굿즈", isNew: true, stock: 18, tone: "from-blue-100 to-indigo-200", icon: Star },
-  { id: 2, name: "픽셀 아트 스티커 팩", price: 3000, category: "굿즈", isNew: true, stock: 30, tone: "from-violet-100 to-fuchsia-200", icon: Sparkles },
-  { id: 3, name: "일러스트 엽서", price: 2000, category: "굿즈", isNew: false, stock: 42, tone: "from-cyan-100 to-blue-200", icon: Image },
-  { id: 4, name: "캐릭터 캔뱃지", price: 1500, category: "굿즈", isNew: false, stock: 25, tone: "from-amber-100 to-orange-200", icon: Tag },
-  { id: 5, name: "일러스트 포스터 A3", price: 10000, category: "굿즈", isNew: false, stock: 8, tone: "from-rose-100 to-pink-200", icon: Image },
-  { id: 6, name: "디자인 마스킹 테이프", price: 4500, category: "굿즈", isNew: true, stock: 16, tone: "from-emerald-100 to-teal-200", icon: Package },
-  { id: 7, name: "아크릴 스탠드", price: 12000, category: "굿즈", isNew: false, stock: 12, tone: "from-sky-100 to-indigo-200", icon: CircleUserRound },
-  { id: 8, name: "회지 단편집", price: 8000, category: "책", isNew: false, stock: 20, tone: "from-slate-100 to-blue-200", icon: BookOpen },
-  { id: 9, name: "키링 + 스티커 세트", price: 7000, category: "세트", isNew: false, stock: 10, tone: "from-indigo-100 to-purple-200", icon: ShoppingBag },
+  { id: 1, name: "고양이 아크릴 키링", price: 5000, category: "굿즈", isNew: true, stock: 18, tone: "from-blue-100 to-indigo-200", iconKey: "star" },
+  { id: 2, name: "픽셀 아트 스티커 팩", price: 3000, category: "굿즈", isNew: true, stock: 30, tone: "from-violet-100 to-fuchsia-200", iconKey: "sparkles" },
+  { id: 3, name: "일러스트 엽서", price: 2000, category: "굿즈", isNew: false, stock: 42, tone: "from-cyan-100 to-blue-200", iconKey: "image" },
+  { id: 4, name: "캐릭터 캔뱃지", price: 1500, category: "굿즈", isNew: false, stock: 25, tone: "from-amber-100 to-orange-200", iconKey: "tag" },
+  { id: 5, name: "일러스트 포스터 A3", price: 10000, category: "굿즈", isNew: false, stock: 8, tone: "from-rose-100 to-pink-200", iconKey: "image" },
+  { id: 6, name: "디자인 마스킹 테이프", price: 4500, category: "굿즈", isNew: true, stock: 16, tone: "from-emerald-100 to-teal-200", iconKey: "package" },
+  { id: 7, name: "아크릴 스탠드", price: 12000, category: "굿즈", isNew: false, stock: 12, tone: "from-sky-100 to-indigo-200", iconKey: "person" },
+  { id: 8, name: "회지 단편집", price: 8000, category: "책", isNew: false, stock: 20, tone: "from-slate-100 to-blue-200", iconKey: "book" },
+  { id: 9, name: "키링 + 스티커 세트", price: 7000, category: "세트", isNew: false, stock: 10, tone: "from-indigo-100 to-purple-200", iconKey: "bag" },
+];
+
+const PRODUCT_ICONS = {
+  star: Star,
+  sparkles: Sparkles,
+  image: Image,
+  tag: Tag,
+  package: Package,
+  person: CircleUserRound,
+  book: BookOpen,
+  bag: ShoppingBag,
+};
+
+const PRODUCT_TONES = [
+  "from-blue-100 to-indigo-200",
+  "from-violet-100 to-fuchsia-200",
+  "from-cyan-100 to-blue-200",
+  "from-amber-100 to-orange-200",
+  "from-rose-100 to-pink-200",
+  "from-emerald-100 to-teal-200",
 ];
 
 const NAV_ITEMS = [
@@ -68,6 +95,26 @@ function money(value) {
 
 function createSaleId() {
   return crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function productIcon(product) {
+  return PRODUCT_ICONS[product.iconKey] || Package;
+}
+
+function hydrateProducts(storedProducts, fallbacks = INITIAL_ITEMS) {
+  return storedProducts.map((product, index) => {
+    const fallback = fallbacks.find(({ id }) => String(id) === String(product.id)) || {};
+    return {
+      id: product.id,
+      name: product.name ?? fallback.name ?? "새 상품",
+      price: Number(product.price ?? fallback.price ?? 0),
+      category: product.category ?? fallback.category ?? "굿즈",
+      isNew: Boolean(product.isNew ?? fallback.isNew ?? false),
+      stock: Number(product.stock ?? fallback.stock ?? 0),
+      tone: product.tone ?? fallback.tone ?? PRODUCT_TONES[index % PRODUCT_TONES.length],
+      iconKey: product.iconKey ?? fallback.iconKey ?? "package",
+    };
+  });
 }
 
 export default function App() {
@@ -106,12 +153,9 @@ export default function App() {
     loadDatabase()
       .then(async (data) => {
         if (data.products.length) {
-          setItems((current) =>
-            current.map((item) => ({
-              ...item,
-              stock: data.products.find((entry) => entry.id === item.id)?.stock ?? item.stock,
-            })),
-          );
+          const hydrated = hydrateProducts(data.products);
+          setItems(hydrated);
+          await saveProducts(hydrated);
         } else {
           await saveProducts(INITIAL_ITEMS);
         }
@@ -216,12 +260,10 @@ export default function App() {
     try {
       const connection = await connectCloud(normalizedKey, items, {
         onProducts: (products) => {
-          saveProducts(products).catch(() => setToast("로컬 재고 캐시 저장에 실패했습니다."));
           setItems((current) => {
-            return current.map((item) => ({
-              ...item,
-              stock: products.find((entry) => entry.id === item.id)?.stock ?? item.stock,
-            }));
+            const hydrated = hydrateProducts(products, [...current, ...INITIAL_ITEMS]);
+            saveProducts(hydrated).catch(() => setToast("로컬 상품 캐시 저장에 실패했습니다."));
+            return hydrated;
           });
         },
         onSales: (nextSales) => {
@@ -266,6 +308,57 @@ export default function App() {
     setCartOpen(false);
   }
 
+  async function saveInventoryProduct(product) {
+    const normalized = hydrateProducts([product], items)[0];
+    const nextItems = items.some(({ id }) => String(id) === String(normalized.id))
+      ? items.map((item) => String(item.id) === String(normalized.id) ? normalized : item)
+      : [...items, normalized];
+    try {
+      if (cloudConnection.current) {
+        if (!networkOnline) throw new Error("상품 수정은 인터넷 연결 후 진행해주세요.");
+        await saveCloudProducts(cloudConnection.current.boothId, nextItems);
+      }
+      await saveProducts(nextItems);
+      setItems(nextItems);
+      setCart((current) => {
+        const quantity = Math.min(current[normalized.id] || 0, normalized.stock);
+        const next = { ...current };
+        if (quantity) next[normalized.id] = quantity;
+        else delete next[normalized.id];
+        return next;
+      });
+      setToast("상품 정보를 저장했습니다.");
+      return true;
+    } catch (error) {
+      setToast(error.message || "상품 저장에 실패했습니다.");
+      return false;
+    }
+  }
+
+  async function deleteInventoryProduct(id) {
+    const target = items.find((item) => String(item.id) === String(id));
+    if (!target || !window.confirm(`"${target.name}" 상품을 삭제할까요? 판매 기록은 유지됩니다.`)) return false;
+    const nextItems = items.filter((item) => String(item.id) !== String(id));
+    try {
+      if (cloudConnection.current) {
+        if (!networkOnline) throw new Error("상품 삭제는 인터넷 연결 후 진행해주세요.");
+        await saveCloudProducts(cloudConnection.current.boothId, nextItems);
+      }
+      await saveProducts(nextItems);
+      setItems(nextItems);
+      setCart((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      setToast("상품을 삭제했습니다.");
+      return true;
+    } catch (error) {
+      setToast(error.message || "상품 삭제에 실패했습니다.");
+      return false;
+    }
+  }
+
   async function updateAccessibility(key) {
     const next = { ...accessibility, [key]: !accessibility[key] };
     setAccessibility(next);
@@ -294,16 +387,13 @@ export default function App() {
       const backup = JSON.parse(await file.text());
       await restoreBackup(backup);
       const data = await loadDatabase();
-      setItems((current) =>
-        current.map((item) => ({
-          ...item,
-          stock: data.products.find((entry) => entry.id === item.id)?.stock ?? item.stock,
-        })),
-      );
+      const restoredItems = hydrateProducts(data.products);
+      setItems(restoredItems);
+      await saveProducts(restoredItems);
       setSales(data.sales);
       setAccessibility(data.accessibility);
       if (cloudConnection.current) {
-        await replaceCloudData(cloudConnection.current.boothId, data.products, data.sales);
+        await replaceCloudData(cloudConnection.current.boothId, restoredItems, data.sales);
       }
       resetTransaction();
       setToast("백업을 복원했습니다.");
@@ -404,7 +494,13 @@ export default function App() {
             </div>
           )}
           {activeView === "history" && <HistoryView sales={sales} />}
-          {activeView === "inventory" && <InventoryView items={items} />}
+          {activeView === "inventory" && (
+            <InventoryView
+              items={items}
+              onSave={saveInventoryProduct}
+              onDelete={deleteInventoryProduct}
+            />
+          )}
           {activeView === "settings" && (
             <SettingsView
               accessibility={accessibility}
@@ -466,7 +562,7 @@ export default function App() {
 }
 
 function ProductCard({ item, quantity, onChange }) {
-  const Icon = item.icon;
+  const Icon = productIcon(item);
   return (
     <article className={`group overflow-hidden rounded-2xl border bg-white p-2.5 shadow-card transition sm:p-3 ${quantity ? "border-primary ring-2 ring-primary/10" : "border-line"}`}>
       <button onClick={() => onChange(item.id, 1)} disabled={!item.stock} className={`relative grid aspect-[1.15] w-full place-items-center overflow-hidden rounded-xl bg-gradient-to-br ${item.tone} disabled:opacity-50`} aria-label={`${item.name} 추가`}>
@@ -503,9 +599,11 @@ function OrderPanel(props) {
           <div className="grid h-full min-h-36 place-items-center text-center text-muted">
             <div><ShoppingBag className="mx-auto mb-3 opacity-35" size={36} /><p className="font-bold">주문이 비어 있어요</p><p className="mt-1 text-sm">상품의 + 버튼을 눌러주세요.</p></div>
           </div>
-        ) : cartItems.map((item) => (
+        ) : cartItems.map((item) => {
+          const ItemIcon = productIcon(item);
+          return (
           <div key={item.id} className="flex items-center gap-3 border-b border-dashed border-line py-3">
-            <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br ${item.tone}`}><item.icon size={21} className="text-primary/70" /></div>
+            <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br ${item.tone}`}><ItemIcon size={21} className="text-primary/70" /></div>
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{item.name}</p><p className="font-mono text-xs text-muted">{money(item.price * item.quantity)}</p></div>
             <div className="flex items-center rounded-xl bg-soft">
               <button onClick={() => onChange(item.id, -1)} className="grid h-11 w-11 place-items-center text-primary" aria-label={`${item.name} 수량 감소`}><Minus size={16} /></button>
@@ -513,7 +611,8 @@ function OrderPanel(props) {
               <button onClick={() => onChange(item.id, 1)} disabled={item.quantity >= item.stock} className="grid h-11 w-11 place-items-center text-primary disabled:text-line" aria-label={`${item.name} 수량 증가`}><Plus size={16} /></button>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
       <div className="border-t border-line bg-soft/70 p-4">
         <button onClick={() => setManualDiscount((value) => !value)} disabled={!subtotal} className={`mb-3 flex min-h-11 w-full items-center justify-between rounded-xl border px-3 text-sm font-bold transition disabled:opacity-50 ${discount ? "border-red-200 bg-red-50 text-danger" : "border-line bg-white text-muted"}`}>
@@ -592,14 +691,149 @@ function HistoryView({ sales }) {
   );
 }
 
-function InventoryView({ items }) {
+function InventoryView({ items, onSave, onDelete }) {
+  const [editing, setEditing] = useState(null);
+
+  function openNewProduct() {
+    setEditing({
+      id: crypto.randomUUID?.() || `product-${Date.now()}`,
+      name: "",
+      price: 0,
+      category: "굿즈",
+      isNew: false,
+      stock: 0,
+      tone: PRODUCT_TONES[items.length % PRODUCT_TONES.length],
+      iconKey: "package",
+      isCreating: true,
+    });
+  }
+
   return (
     <PageShell eyebrow="Inventory" title="재고 관리">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {items.map((item) => <div key={item.id} className="flex items-center gap-4 rounded-2xl border border-line bg-white p-4 shadow-card"><div className={`grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br ${item.tone}`}><item.icon size={22} className="text-primary/70" /></div><div className="min-w-0 flex-1"><p className="truncate font-bold">{item.name}</p><p className="text-sm text-muted">{money(item.price)}</p></div><span className={`font-mono text-lg font-bold ${item.stock < 5 ? "text-danger" : "text-primary"}`}>{item.stock}</span></div>)}
+      <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-line bg-white p-4 shadow-card sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="font-extrabold">판매 상품 {items.length}종</p>
+          <p className="mt-1 text-sm text-muted">상품 카드의 수정 버튼에서 이름, 가격과 재고를 변경할 수 있습니다.</p>
+        </div>
+        <button onClick={openNewProduct} className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-primary px-5 font-bold text-white shadow-glow">
+          <Plus size={20} aria-hidden="true" />새 상품 추가
+        </button>
       </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {items.map((item) => {
+          const ItemIcon = productIcon(item);
+          return (
+            <article key={item.id} className="rounded-2xl border border-line bg-white p-4 shadow-card">
+              <div className="flex items-center gap-4">
+                <div className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-gradient-to-br ${item.tone}`}>
+                  <ItemIcon size={22} className="text-primary/70" aria-hidden="true" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-bold">{item.name}</p>
+                  <p className="text-sm text-muted">{item.category} · {money(item.price)}</p>
+                </div>
+                <div className="text-right">
+                  <span className={`block font-mono text-lg font-bold ${item.stock < 5 ? "text-danger" : "text-primary"}`}>{item.stock}</span>
+                  <span className="text-xs text-muted">재고</span>
+                </div>
+              </div>
+              <button onClick={() => setEditing({ ...item, isCreating: false })} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-soft font-bold text-primary">
+                <Pencil size={17} aria-hidden="true" />상품 수정
+              </button>
+            </article>
+          );
+        })}
+      </div>
+      {!items.length && <EmptyState text="등록된 상품이 없습니다. 새 상품을 추가해주세요." />}
+      {editing && (
+        <ProductEditor
+          product={editing}
+          onClose={() => setEditing(null)}
+          onSave={async (product) => {
+            if (await onSave(product)) setEditing(null);
+          }}
+          onDelete={async (id) => {
+            if (await onDelete(id)) setEditing(null);
+          }}
+        />
+      )}
     </PageShell>
   );
+}
+
+function ProductEditor({ product, onClose, onSave, onDelete }) {
+  const [form, setForm] = useState(product);
+  const [saving, setSaving] = useState(false);
+
+  function update(key, value) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    const name = form.name.trim();
+    const price = Number(form.price);
+    const stock = Number(form.stock);
+    if (!name || !Number.isFinite(price) || price < 0 || !Number.isInteger(stock) || stock < 0) return;
+    setSaving(true);
+    await onSave({ ...form, name, price, stock, isCreating: undefined });
+    setSaving(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-ink/50 p-0 backdrop-blur-sm sm:items-center sm:p-4">
+      <button className="absolute inset-0" onClick={onClose} aria-label="상품 편집 닫기" />
+      <form onSubmit={submit} role="dialog" aria-modal="true" aria-labelledby="product-editor-title" className="safe-bottom relative z-10 max-h-[94dvh] w-full overflow-y-auto rounded-t-[28px] bg-white p-5 shadow-2xl sm:max-w-lg sm:rounded-[28px] sm:p-6">
+        <div className="mb-5 flex items-center justify-between">
+          <div>
+            <p className="font-mono text-xs font-bold text-primary">PRODUCT EDITOR</p>
+            <h2 id="product-editor-title" className="text-2xl font-extrabold">{form.isCreating ? "새 상품 추가" : "상품 수정"}</h2>
+          </div>
+          <button type="button" onClick={onClose} className="grid h-11 w-11 place-items-center rounded-xl bg-soft" aria-label="닫기"><X /></button>
+        </div>
+
+        <div className="space-y-4">
+          <EditorField label="상품 이름">
+            <input required value={form.name} onChange={(event) => update("name", event.target.value)} className="editor-input" placeholder="예: 봄 한정 아크릴 키링" />
+          </EditorField>
+          <div className="grid grid-cols-2 gap-3">
+            <EditorField label="가격">
+              <input required type="number" inputMode="numeric" min="0" step="100" value={form.price} onChange={(event) => update("price", event.target.value)} className="editor-input" />
+            </EditorField>
+            <EditorField label="재고">
+              <input required type="number" inputMode="numeric" min="0" step="1" value={form.stock} onChange={(event) => update("stock", event.target.value)} className="editor-input" />
+            </EditorField>
+          </div>
+          <EditorField label="분류">
+            <select value={form.category} onChange={(event) => update("category", event.target.value)} className="editor-input">
+              <option value="굿즈">굿즈</option>
+              <option value="책">책</option>
+              <option value="세트">세트</option>
+            </select>
+          </EditorField>
+          <label className="flex min-h-14 items-center justify-between rounded-xl border border-line px-4">
+            <span><span className="block font-bold">신규 상품 표시</span><span className="text-xs text-muted">카탈로그에 NEW 배지를 표시합니다.</span></span>
+            <input type="checkbox" checked={form.isNew} onChange={(event) => update("isNew", event.target.checked)} className="h-6 w-6 accent-primary" />
+          </label>
+        </div>
+
+        <div className={`mt-5 grid gap-2 ${form.isCreating ? "grid-cols-1" : "grid-cols-[0.8fr_1.2fr]"}`}>
+          {!form.isCreating && (
+            <button type="button" onClick={() => onDelete(form.id)} disabled={saving} className="flex min-h-14 items-center justify-center gap-2 rounded-xl border-2 border-danger font-bold text-danger">
+              <Trash2 size={19} aria-hidden="true" />삭제
+            </button>
+          )}
+          <button type="submit" disabled={saving || !form.name.trim()} className="flex min-h-14 items-center justify-center gap-2 rounded-xl bg-primary font-bold text-white shadow-glow disabled:bg-line">
+            <Check size={20} aria-hidden="true" />{saving ? "저장 중..." : "저장"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function EditorField({ label, children }) {
+  return <label className="block"><span className="mb-2 block text-sm font-bold">{label}</span>{children}</label>;
 }
 
 function SettingsView({
@@ -721,7 +955,7 @@ function SettingsView({
           </button>
         </section>
 
-        <p className="px-2 text-sm leading-6 text-muted">데이터는 현재 이 브라우저 안에만 저장됩니다. 여러 기기의 실시간 동기화에는 별도 서버가 필요합니다.</p>
+        <p className="px-2 text-sm leading-6 text-muted">로컬 모드에서는 이 브라우저에 저장되고, 실시간 연동을 켜면 연결된 기기와 상품·재고·판매 기록을 공유합니다.</p>
       </div>
     </PageShell>
   );

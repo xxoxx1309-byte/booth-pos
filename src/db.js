@@ -119,7 +119,7 @@ export async function saveProducts(products) {
   const transaction = database.transaction("products", "readwrite");
   const store = transaction.objectStore("products");
   store.clear();
-  products.forEach(({ id, stock }) => store.put({ id, stock }));
+  products.forEach((product) => store.put(product));
   await transactionDone(transaction);
   database.close();
 }
@@ -144,7 +144,7 @@ export async function commitSale(sale, products) {
   transaction.objectStore("sales").put(sale);
   const productStore = transaction.objectStore("products");
   productStore.clear();
-  products.forEach(({ id, stock }) => productStore.put({ id, stock }));
+  products.forEach((product) => productStore.put(product));
   await transactionDone(transaction);
   database.close();
 }
