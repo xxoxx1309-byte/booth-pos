@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   getFirestore,
   onSnapshot,
@@ -33,24 +34,19 @@ async function hashSyncKey(syncKey) {
 }
 
 async function seedProducts(boothId, initialProducts) {
-  const products = collection(firestore, "booths", boothId, "products");
-  const snapshot = await getDocs(products);
-  const existingIds = new Set(snapshot.docs.map((entry) => entry.id));
-  const missingProducts = initialProducts.filter(({ id }) => !existingIds.has(String(id)));
-  const incompleteProducts = snapshot.docs.filter((entry) => !entry.data().name);
-  if (!missingProducts.length && !incompleteProducts.length) return;
+  const booth = doc(firestore, "booths", boothId);
+  const boothSnapshot = await getDoc(booth);
+  if (boothSnapshot.exists()) return;
 
+  const products = collection(firestore, "booths", boothId, "products");
   const batch = writeBatch(firestore);
-  missingProducts.forEach((product) => {
+  initialProducts.forEach((product) => {
     batch.set(doc(products, String(product.id)), product);
   });
-  incompleteProducts.forEach((entry) => {
-    const fallback = initialProducts.find(({ id }) => String(id) === entry.id);
-    if (fallback) batch.set(entry.ref, { ...fallback, ...entry.data() });
-  });
-  batch.set(doc(firestore, "booths", boothId), {
+  batch.set(booth, {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    productsInitialized: true,
   });
   await batch.commit();
 }

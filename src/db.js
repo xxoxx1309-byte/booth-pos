@@ -1,5 +1,5 @@
 const DB_NAME = "booth-pos";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const BACKUP_VERSION = 1;
 
 function requestToPromise(request) {
@@ -20,7 +20,7 @@ function transactionDone(transaction) {
 function openDatabase() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const database = request.result;
       if (!database.objectStoreNames.contains("products")) {
         database.createObjectStore("products", { keyPath: "id" });
@@ -31,6 +31,11 @@ function openDatabase() {
       }
       if (!database.objectStoreNames.contains("settings")) {
         database.createObjectStore("settings", { keyPath: "key" });
+      }
+      if (event.oldVersion >= 1) {
+        request.transaction
+          .objectStore("settings")
+          .put({ key: "productsInitialized", value: true });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -102,24 +107,27 @@ async function migrateLegacyData() {
 
 export async function loadDatabase() {
   await migrateLegacyData();
-  const [products, sales, accessibility] = await Promise.all([
+  const [products, sales, accessibility, productsInitialized] = await Promise.all([
     readAll("products"),
     readAll("sales"),
     readSetting("accessibility"),
+    readSetting("productsInitialized"),
   ]);
   return {
     products,
     sales: sales.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")),
     accessibility: accessibility || { largeText: false, highContrast: false },
+    productsInitialized: Boolean(productsInitialized),
   };
 }
 
 export async function saveProducts(products) {
   const database = await openDatabase();
-  const transaction = database.transaction("products", "readwrite");
+  const transaction = database.transaction(["products", "settings"], "readwrite");
   const store = transaction.objectStore("products");
   store.clear();
   products.forEach((product) => store.put(product));
+  transaction.objectStore("settings").put({ key: "productsInitialized", value: true });
   await transactionDone(transaction);
   database.close();
 }

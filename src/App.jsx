@@ -210,7 +210,7 @@ export default function App() {
   useEffect(() => {
     loadDatabase()
       .then(async (data) => {
-        if (data.products.length) {
+        if (data.productsInitialized) {
           const hydrated = hydrateProducts(data.products);
           setItems(hydrated);
           await saveProducts(hydrated);
