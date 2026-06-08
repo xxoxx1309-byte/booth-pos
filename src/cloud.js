@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import {
   collection,
+  deleteDoc,
   doc,
   getDocs,
   getFirestore,
@@ -8,6 +9,7 @@ import {
   orderBy,
   query,
   runTransaction,
+  setDoc,
   writeBatch,
 } from "firebase/firestore";
 
@@ -73,6 +75,17 @@ export async function saveCloudProducts(boothId, products) {
     operations.slice(index, index + BATCH_LIMIT).forEach((operation) => operation(batch));
     await batch.commit();
   }
+}
+
+export async function saveCloudProduct(boothId, product) {
+  await setDoc(
+    doc(firestore, "booths", boothId, "products", String(product.id)),
+    product,
+  );
+}
+
+export async function deleteCloudProduct(boothId, productId) {
+  await deleteDoc(doc(firestore, "booths", boothId, "products", String(productId)));
 }
 
 export async function connectCloud(syncKey, initialProducts, handlers) {

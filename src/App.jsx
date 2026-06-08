@@ -33,8 +33,9 @@ import {
 import {
   commitCloudSale,
   connectCloud,
+  deleteCloudProduct,
   replaceCloudData,
-  saveCloudProducts,
+  saveCloudProduct,
   watchNetwork,
 } from "./cloud";
 import {
@@ -49,16 +50,28 @@ import {
 } from "./db";
 
 const INITIAL_ITEMS = [
-  { id: 1, name: "고양이 아크릴 키링", price: 5000, category: "굿즈", isNew: true, stock: 18, tone: "from-blue-100 to-indigo-200", iconKey: "star" },
-  { id: 2, name: "픽셀 아트 스티커 팩", price: 3000, category: "굿즈", isNew: true, stock: 30, tone: "from-violet-100 to-fuchsia-200", iconKey: "sparkles" },
-  { id: 3, name: "일러스트 엽서", price: 2000, category: "굿즈", isNew: false, stock: 42, tone: "from-cyan-100 to-blue-200", iconKey: "image" },
-  { id: 4, name: "캐릭터 캔뱃지", price: 1500, category: "굿즈", isNew: false, stock: 25, tone: "from-amber-100 to-orange-200", iconKey: "tag" },
-  { id: 5, name: "일러스트 포스터 A3", price: 10000, category: "굿즈", isNew: false, stock: 8, tone: "from-rose-100 to-pink-200", iconKey: "image" },
-  { id: 6, name: "디자인 마스킹 테이프", price: 4500, category: "굿즈", isNew: true, stock: 16, tone: "from-emerald-100 to-teal-200", iconKey: "package" },
-  { id: 7, name: "아크릴 스탠드", price: 12000, category: "굿즈", isNew: false, stock: 12, tone: "from-sky-100 to-indigo-200", iconKey: "person" },
-  { id: 8, name: "회지 단편집", price: 8000, category: "책", isNew: false, stock: 20, tone: "from-slate-100 to-blue-200", iconKey: "book" },
-  { id: 9, name: "키링 + 스티커 세트", price: 7000, category: "세트", isNew: false, stock: 10, tone: "from-indigo-100 to-purple-200", iconKey: "bag" },
+  { id: 1, name: "굿즈 품목 1", price: 5000, category: "굿즈", isNew: false, stock: 18, tone: "from-blue-100 to-indigo-200", iconKey: "star" },
+  { id: 2, name: "굿즈 품목 2", price: 3000, category: "굿즈", isNew: false, stock: 30, tone: "from-violet-100 to-fuchsia-200", iconKey: "sparkles" },
+  { id: 3, name: "굿즈 품목 3", price: 2000, category: "굿즈", isNew: false, stock: 42, tone: "from-cyan-100 to-blue-200", iconKey: "image" },
+  { id: 4, name: "굿즈 품목 4", price: 1500, category: "굿즈", isNew: false, stock: 25, tone: "from-amber-100 to-orange-200", iconKey: "tag" },
+  { id: 5, name: "굿즈 품목 5", price: 10000, category: "굿즈", isNew: false, stock: 8, tone: "from-rose-100 to-pink-200", iconKey: "image" },
+  { id: 6, name: "굿즈 품목 6", price: 4500, category: "굿즈", isNew: false, stock: 16, tone: "from-emerald-100 to-teal-200", iconKey: "package" },
+  { id: 7, name: "굿즈 품목 7", price: 12000, category: "굿즈", isNew: false, stock: 12, tone: "from-sky-100 to-indigo-200", iconKey: "person" },
+  { id: 8, name: "굿즈 품목 8", price: 8000, category: "굿즈", isNew: false, stock: 20, tone: "from-slate-100 to-blue-200", iconKey: "book" },
+  { id: 9, name: "굿즈 품목 9", price: 7000, category: "굿즈", isNew: false, stock: 10, tone: "from-indigo-100 to-purple-200", iconKey: "bag" },
 ];
+
+const LEGACY_DEFAULT_NAMES = new Map([
+  ["고양이 아크릴 키링", 1],
+  ["픽셀 아트 스티커 팩", 2],
+  ["일러스트 엽서", 3],
+  ["캐릭터 캔뱃지", 4],
+  ["일러스트 포스터 A3", 5],
+  ["디자인 마스킹 테이프", 6],
+  ["아크릴 스탠드", 7],
+  ["회지 단편집", 8],
+  ["키링 + 스티커 세트", 9],
+]);
 
 const PRODUCT_ICONS = {
   star: Star,
@@ -105,16 +118,59 @@ function productIcon(product) {
 function hydrateProducts(storedProducts, fallbacks = INITIAL_ITEMS) {
   return storedProducts.map((product, index) => {
     const fallback = fallbacks.find(({ id }) => String(id) === String(product.id)) || {};
+    const legacyNumber = LEGACY_DEFAULT_NAMES.get(product.name);
+    const brokenDefaultNumber =
+      typeof product.name === "string" &&
+      product.name.includes("?") &&
+      Number.isInteger(Number(product.id)) &&
+      Number(product.id) >= 1 &&
+      Number(product.id) <= INITIAL_ITEMS.length
+        ? Number(product.id)
+        : null;
+    const genericNumber = legacyNumber || brokenDefaultNumber;
     return {
       id: product.id,
-      name: product.name ?? fallback.name ?? "새 상품",
+      name: genericNumber ? `굿즈 품목 ${genericNumber}` : product.name ?? fallback.name ?? "새 상품",
       price: Number(product.price ?? fallback.price ?? 0),
-      category: product.category ?? fallback.category ?? "굿즈",
-      isNew: Boolean(product.isNew ?? fallback.isNew ?? false),
+      category: genericNumber ? "굿즈" : product.category ?? fallback.category ?? "굿즈",
+      isNew: genericNumber ? false : Boolean(product.isNew ?? fallback.isNew ?? false),
       stock: Number(product.stock ?? fallback.stock ?? 0),
       tone: product.tone ?? fallback.tone ?? PRODUCT_TONES[index % PRODUCT_TONES.length],
       iconKey: product.iconKey ?? fallback.iconKey ?? "package",
+      image: product.image ?? fallback.image ?? "",
     };
+  });
+}
+
+function resizeProductImage(file) {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith("image/")) {
+      reject(new Error("이미지 파일만 선택할 수 있습니다."));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("이미지를 읽지 못했습니다."));
+    reader.onload = () => {
+      const image = new window.Image();
+      image.onerror = () => reject(new Error("지원하지 않는 이미지 형식입니다."));
+      image.onload = () => {
+        const maxSize = 800;
+        const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const compressed = canvas.toDataURL("image/jpeg", 0.72);
+        if (compressed.length > 700_000) {
+          reject(new Error("이미지가 너무 큽니다. 더 작은 이미지를 선택해주세요."));
+          return;
+        }
+        resolve(compressed);
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
   });
 }
 
@@ -319,7 +375,7 @@ export default function App() {
     try {
       if (cloudConnection.current) {
         if (!networkOnline) throw new Error("상품 수정은 인터넷 연결 후 진행해주세요.");
-        await saveCloudProducts(cloudConnection.current.boothId, nextItems);
+        await saveCloudProduct(cloudConnection.current.boothId, normalized);
       }
       await saveProducts(nextItems);
       setItems(nextItems);
@@ -345,7 +401,7 @@ export default function App() {
     try {
       if (cloudConnection.current) {
         if (!networkOnline) throw new Error("상품 삭제는 인터넷 연결 후 진행해주세요.");
-        await saveCloudProducts(cloudConnection.current.boothId, nextItems);
+        await deleteCloudProduct(cloudConnection.current.boothId, id);
       }
       await saveProducts(nextItems);
       setItems(nextItems);
@@ -695,7 +751,11 @@ function ProductCard({ item, quantity, onChange }) {
     <article className={`group overflow-hidden rounded-2xl border bg-white p-2.5 shadow-card transition sm:p-3 ${quantity ? "border-primary ring-2 ring-primary/10" : "border-line"}`}>
       <button onClick={() => onChange(item.id, 1)} disabled={!item.stock} className={`relative grid aspect-[1.15] w-full place-items-center overflow-hidden rounded-xl bg-gradient-to-br ${item.tone} disabled:opacity-50`} aria-label={`${item.name} 추가`}>
         <div className="absolute -right-6 -top-7 h-24 w-24 rounded-full bg-white/45 blur-xl" />
-        <Icon className="relative text-primary/70 transition group-hover:scale-110" size={48} strokeWidth={1.5} />
+        {item.image ? (
+          <img src={item.image} alt="" className="absolute inset-0 h-full w-full object-cover transition group-hover:scale-105" />
+        ) : (
+          <Icon className="relative text-primary/70 transition group-hover:scale-110" size={48} strokeWidth={1.5} />
+        )}
         {item.isNew && <span className="absolute left-2 top-2 rounded-full bg-white/85 px-2 py-1 font-mono text-[10px] font-bold text-secondary">NEW</span>}
         <span className="absolute bottom-2 right-2 rounded-full bg-white/85 px-2 py-1 text-[10px] font-bold text-muted">재고 {item.stock}</span>
       </button>
@@ -731,7 +791,7 @@ function OrderPanel(props) {
           const ItemIcon = productIcon(item);
           return (
           <div key={item.id} className="flex items-center gap-3 border-b border-dashed border-line py-3">
-            <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br ${item.tone}`}><ItemIcon size={21} className="text-primary/70" /></div>
+            <ProductThumbnail item={item} icon={ItemIcon} className="h-11 w-11" />
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{item.name}</p><p className="font-mono text-xs text-muted">{money(item.price * item.quantity)}</p></div>
             <div className="flex items-center rounded-xl bg-soft">
               <button onClick={() => onChange(item.id, -1)} className="grid h-11 w-11 place-items-center text-primary" aria-label={`${item.name} 수량 감소`}><Minus size={16} /></button>
@@ -832,6 +892,7 @@ function InventoryView({ items, onSave, onDelete }) {
       stock: 0,
       tone: PRODUCT_TONES[items.length % PRODUCT_TONES.length],
       iconKey: "package",
+      image: "",
       isCreating: true,
     });
   }
@@ -853,9 +914,7 @@ function InventoryView({ items, onSave, onDelete }) {
           return (
             <article key={item.id} className="rounded-2xl border border-line bg-white p-4 shadow-card">
               <div className="flex items-center gap-4">
-                <div className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-gradient-to-br ${item.tone}`}>
-                  <ItemIcon size={22} className="text-primary/70" aria-hidden="true" />
-                </div>
+                <ProductThumbnail item={item} icon={ItemIcon} className="h-12 w-12" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-bold">{item.name}</p>
                   <p className="text-sm text-muted">{item.category} · {money(item.price)}</p>
@@ -892,6 +951,7 @@ function InventoryView({ items, onSave, onDelete }) {
 function ProductEditor({ product, onClose, onSave, onDelete }) {
   const [form, setForm] = useState(product);
   const [saving, setSaving] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
 
   function update(key, value) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -921,6 +981,39 @@ function ProductEditor({ product, onClose, onSave, onDelete }) {
         </div>
 
         <div className="space-y-4">
+          <EditorField label="상품 이미지">
+            <div className="flex items-center gap-4 rounded-xl border border-line p-3">
+              <div className={`grid h-24 w-24 shrink-0 place-items-center overflow-hidden rounded-xl bg-gradient-to-br ${form.tone}`}>
+                {form.image ? <img src={form.image} alt="상품 미리보기" className="h-full w-full object-cover" /> : <Image size={32} className="text-primary/60" aria-hidden="true" />}
+              </div>
+              <div className="min-w-0 flex-1 space-y-2">
+                <label className="flex min-h-11 cursor-pointer items-center justify-center rounded-xl bg-soft px-3 text-center text-sm font-bold text-primary">
+                  {imageBusy ? "이미지 처리 중..." : "사진 선택"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    disabled={imageBusy}
+                    onChange={async (event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = "";
+                      if (!file) return;
+                      setImageBusy(true);
+                      try {
+                        update("image", await resizeProductImage(file));
+                      } catch (error) {
+                        window.alert(error.message);
+                      } finally {
+                        setImageBusy(false);
+                      }
+                    }}
+                  />
+                </label>
+                {form.image && <button type="button" onClick={() => update("image", "")} className="min-h-10 w-full rounded-xl text-sm font-bold text-danger">이미지 제거</button>}
+                <p className="text-xs leading-5 text-muted">최대 800px JPEG로 자동 압축됩니다.</p>
+              </div>
+            </div>
+          </EditorField>
           <EditorField label="상품 이름">
             <input required value={form.name} onChange={(event) => update("name", event.target.value)} className="editor-input" placeholder="예: 봄 한정 아크릴 키링" />
           </EditorField>
@@ -951,11 +1044,19 @@ function ProductEditor({ product, onClose, onSave, onDelete }) {
               <Trash2 size={19} aria-hidden="true" />삭제
             </button>
           )}
-          <button type="submit" disabled={saving || !form.name.trim()} className="flex min-h-14 items-center justify-center gap-2 rounded-xl bg-primary font-bold text-white shadow-glow disabled:bg-line">
+          <button type="submit" disabled={saving || imageBusy || !form.name.trim()} className="flex min-h-14 items-center justify-center gap-2 rounded-xl bg-primary font-bold text-white shadow-glow disabled:bg-line">
             <Check size={20} aria-hidden="true" />{saving ? "저장 중..." : "저장"}
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function ProductThumbnail({ item, icon: Icon, className }) {
+  return (
+    <div className={`grid shrink-0 place-items-center overflow-hidden rounded-xl bg-gradient-to-br ${item.tone} ${className}`}>
+      {item.image ? <img src={item.image} alt="" className="h-full w-full object-cover" /> : <Icon size={22} className="text-primary/70" aria-hidden="true" />}
     </div>
   );
 }
