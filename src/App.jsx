@@ -34,6 +34,7 @@ import {
   commitCloudSale,
   connectCloud,
   deleteCloudProduct,
+  deleteCloudProducts,
   replaceCloudData,
   saveCloudProduct,
   watchNetwork,
@@ -418,6 +419,35 @@ export default function App() {
     }
   }
 
+  async function deleteInventoryProducts(ids) {
+    const idSet = new Set(ids.map(String));
+    const targets = items.filter((item) => idSet.has(String(item.id)));
+    if (!targets.length) return false;
+    const preview = targets.slice(0, 3).map((item) => item.name).join(", ");
+    const suffix = targets.length > 3 ? ` 외 ${targets.length - 3}개` : "";
+    if (!window.confirm(`${targets.length}개 상품을 삭제할까요?\n${preview}${suffix}\n판매 기록은 유지됩니다.`)) return false;
+
+    const nextItems = items.filter((item) => !idSet.has(String(item.id)));
+    try {
+      if (cloudConnection.current) {
+        if (!networkOnline) throw new Error("상품 삭제는 인터넷 연결 후 진행해주세요.");
+        await deleteCloudProducts(cloudConnection.current.boothId, ids);
+      }
+      await saveProducts(nextItems);
+      setItems(nextItems);
+      setCart((current) => {
+        const next = { ...current };
+        ids.forEach((id) => delete next[id]);
+        return next;
+      });
+      setToast(`${targets.length}개 상품을 삭제했습니다.`);
+      return true;
+    } catch (error) {
+      setToast(error.message || "상품 일괄 삭제에 실패했습니다.");
+      return false;
+    }
+  }
+
   async function updateAccessibility(key) {
     const next = { ...accessibility, [key]: !accessibility[key] };
     setAccessibility(next);
@@ -563,6 +593,7 @@ export default function App() {
               items={items}
               onSave={saveInventoryProduct}
               onDelete={deleteInventoryProduct}
+              onDeleteMany={deleteInventoryProducts}
             />
           )}
           {activeView === "settings" && (
@@ -879,8 +910,11 @@ function HistoryView({ sales }) {
   );
 }
 
-function InventoryView({ items, onSave, onDelete }) {
+function InventoryView({ items, onSave, onDelete, onDeleteMany }) {
   const [editing, setEditing] = useState(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const selectedSet = new Set(selectedIds.map(String));
 
   function openNewProduct() {
     setEditing({
@@ -897,6 +931,19 @@ function InventoryView({ items, onSave, onDelete }) {
     });
   }
 
+  function toggleSelection(id) {
+    setSelectedIds((current) =>
+      current.some((entry) => String(entry) === String(id))
+        ? current.filter((entry) => String(entry) !== String(id))
+        : [...current, id],
+    );
+  }
+
+  function exitSelectionMode() {
+    setSelectionMode(false);
+    setSelectedIds([]);
+  }
+
   return (
     <PageShell eyebrow="Inventory" title="재고 관리">
       <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-line bg-white p-4 shadow-card sm:flex-row sm:items-center sm:justify-between">
@@ -904,15 +951,46 @@ function InventoryView({ items, onSave, onDelete }) {
           <p className="font-extrabold">판매 상품 {items.length}종</p>
           <p className="mt-1 text-sm text-muted">상품 카드의 수정 버튼에서 이름, 가격과 재고를 변경할 수 있습니다.</p>
         </div>
-        <button onClick={openNewProduct} className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-primary px-5 font-bold text-white shadow-glow">
-          <Plus size={20} aria-hidden="true" />새 상품 추가
-        </button>
+        <div className="grid grid-cols-2 gap-2 sm:flex">
+          <button onClick={selectionMode ? exitSelectionMode : () => setSelectionMode(true)} disabled={!items.length} className={`flex min-h-12 items-center justify-center gap-2 rounded-xl border px-4 font-bold disabled:opacity-40 ${selectionMode ? "border-danger text-danger" : "border-primary text-primary"}`}>
+            {selectionMode ? <X size={19} aria-hidden="true" /> : <Check size={19} aria-hidden="true" />}
+            {selectionMode ? "선택 취소" : "여러 개 선택"}
+          </button>
+          <button onClick={openNewProduct} className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-primary px-5 font-bold text-white shadow-glow">
+            <Plus size={20} aria-hidden="true" />새 상품 추가
+          </button>
+        </div>
       </div>
+      {selectionMode && (
+        <div className="sticky top-0 z-10 mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-red-200 bg-white p-3 shadow-card">
+          <span className="mr-auto font-bold text-danger">{selectedIds.length}개 선택됨</span>
+          <button onClick={() => setSelectedIds(selectedIds.length === items.length ? [] : items.map((item) => item.id))} className="min-h-11 rounded-xl bg-soft px-4 text-sm font-bold text-primary">
+            {selectedIds.length === items.length ? "전체 해제" : "전체 선택"}
+          </button>
+          <button
+            onClick={async () => {
+              if (await onDeleteMany(selectedIds)) exitSelectionMode();
+            }}
+            disabled={!selectedIds.length}
+            className="flex min-h-11 items-center gap-2 rounded-xl bg-danger px-4 text-sm font-bold text-white disabled:bg-line"
+          >
+            <Trash2 size={17} aria-hidden="true" />선택 삭제
+          </button>
+        </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {items.map((item) => {
           const ItemIcon = productIcon(item);
           return (
-            <article key={item.id} className="rounded-2xl border border-line bg-white p-4 shadow-card">
+            <article key={item.id} className={`relative rounded-2xl border bg-white p-4 shadow-card ${selectedSet.has(String(item.id)) ? "border-danger ring-2 ring-red-100" : "border-line"}`}>
+              {selectionMode && (
+                <button onClick={() => toggleSelection(item.id)} className="absolute inset-0 z-10 rounded-2xl" aria-label={`${item.name} ${selectedSet.has(String(item.id)) ? "선택 해제" : "선택"}`} />
+              )}
+              {selectionMode && (
+                <span className={`absolute right-3 top-3 z-20 grid h-8 w-8 place-items-center rounded-full border-2 ${selectedSet.has(String(item.id)) ? "border-danger bg-danger text-white" : "border-line bg-white text-transparent"}`}>
+                  <Check size={18} />
+                </span>
+              )}
               <div className="flex items-center gap-4">
                 <ProductThumbnail item={item} icon={ItemIcon} className="h-12 w-12" />
                 <div className="min-w-0 flex-1">
@@ -924,7 +1002,7 @@ function InventoryView({ items, onSave, onDelete }) {
                   <span className="text-xs text-muted">재고</span>
                 </div>
               </div>
-              <button onClick={() => setEditing({ ...item, isCreating: false })} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-soft font-bold text-primary">
+              <button onClick={() => setEditing({ ...item, isCreating: false })} disabled={selectionMode} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-soft font-bold text-primary disabled:opacity-50">
                 <Pencil size={17} aria-hidden="true" />상품 수정
               </button>
             </article>

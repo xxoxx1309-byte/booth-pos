@@ -84,6 +84,16 @@ export async function deleteCloudProduct(boothId, productId) {
   await deleteDoc(doc(firestore, "booths", boothId, "products", String(productId)));
 }
 
+export async function deleteCloudProducts(boothId, productIds) {
+  for (let index = 0; index < productIds.length; index += BATCH_LIMIT) {
+    const batch = writeBatch(firestore);
+    productIds.slice(index, index + BATCH_LIMIT).forEach((productId) => {
+      batch.delete(doc(firestore, "booths", boothId, "products", String(productId)));
+    });
+    await batch.commit();
+  }
+}
+
 export async function connectCloud(syncKey, initialProducts, handlers) {
   if (syncKey.trim().length < 12) {
     throw new Error("동기화 키는 12자 이상이어야 합니다.");
