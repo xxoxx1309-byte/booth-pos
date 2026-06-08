@@ -3,6 +3,7 @@ import {
   BarChart3,
   BookOpen,
   Boxes,
+  Calculator,
   Check,
   ChevronDown,
   CircleUserRound,
@@ -126,6 +127,7 @@ export default function App() {
   const [manualDiscount, setManualDiscount] = useState(false);
   const [activeView, setActiveView] = useState("catalog");
   const [cartOpen, setCartOpen] = useState(false);
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [sales, setSales] = useState([]);
   const [toast, setToast] = useState("");
   const [databaseReady, setDatabaseReady] = useState(false);
@@ -306,6 +308,7 @@ export default function App() {
   function switchView(view) {
     setActiveView(view);
     setCartOpen(false);
+    setCalculatorOpen(false);
   }
 
   async function saveInventoryProduct(product) {
@@ -452,11 +455,16 @@ export default function App() {
                       <p className="mb-1 font-mono text-xs font-bold uppercase tracking-[0.18em] text-primary">Quick catalog</p>
                       <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">오늘 판매할 굿즈</h1>
                     </div>
-                    <label className="flex h-12 w-full items-center gap-3 rounded-xl border border-line bg-white px-4 shadow-card focus-within:border-primary xl:w-72">
-                      <span className="sr-only">상품 이름 검색</span>
-                      <Search size={19} className="text-muted" />
-                      <input value={search} onChange={(event) => setSearch(event.target.value)} className="min-w-0 flex-1 border-0 bg-transparent text-base outline-none" placeholder="상품 검색" />
-                    </label>
+                    <div className="flex w-full gap-2 xl:w-auto">
+                      <label className="flex h-12 min-w-0 flex-1 items-center gap-3 rounded-xl border border-line bg-white px-4 shadow-card focus-within:border-primary xl:w-72">
+                        <span className="sr-only">상품 이름 검색</span>
+                        <Search size={19} className="text-muted" />
+                        <input value={search} onChange={(event) => setSearch(event.target.value)} className="min-w-0 flex-1 border-0 bg-transparent text-base outline-none" placeholder="상품 검색" />
+                      </label>
+                      <button onClick={() => setCalculatorOpen(true)} className="flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-secondary px-4 font-bold text-white shadow-card">
+                        <Calculator size={19} aria-hidden="true" /><span className="hidden sm:inline">가격 계산</span>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="scrollbar-none mb-5 flex gap-2 overflow-x-auto pb-1" role="group" aria-label="상품 분류">
@@ -555,8 +563,86 @@ export default function App() {
           </div>
         </div>
       )}
+      {calculatorOpen && (
+        <PriceCalculator
+          items={items}
+          onClose={() => setCalculatorOpen(false)}
+          onAdd={(id, quantity) => {
+            updateQuantity(id, quantity);
+            setCalculatorOpen(false);
+            setToast(`${quantity}개를 주문에 담았습니다.`);
+          }}
+        />
+      )}
       <div className="sr-only" aria-live="polite">{toast}</div>
       {toast && <div role="status" className="fixed left-1/2 top-20 z-[70] -translate-x-1/2 rounded-full bg-ink px-5 py-3 text-sm font-bold text-white shadow-xl">{toast}</div>}
+    </div>
+  );
+}
+
+function PriceCalculator({ items, onClose, onAdd }) {
+  const availableItems = items.filter((item) => item.stock > 0);
+  const [selectedId, setSelectedId] = useState(availableItems[0]?.id ?? "");
+  const selectedItem = items.find((item) => String(item.id) === String(selectedId));
+  const [quantity, setQuantity] = useState(selectedItem ? 1 : 0);
+  const safeQuantity = selectedItem
+    ? Math.min(selectedItem.stock, Math.max(1, Number(quantity) || 1))
+    : 0;
+  const calculatedTotal = selectedItem ? selectedItem.price * safeQuantity : 0;
+
+  function selectProduct(id) {
+    const item = items.find((entry) => String(entry.id) === String(id));
+    setSelectedId(id);
+    setQuantity(item ? 1 : 0);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[65] flex items-end justify-center bg-ink/50 backdrop-blur-sm sm:items-center sm:p-4">
+      <button className="absolute inset-0" onClick={onClose} aria-label="가격 계산기 닫기" />
+      <section role="dialog" aria-modal="true" aria-labelledby="calculator-title" className="safe-bottom relative z-10 w-full rounded-t-[28px] bg-white p-5 shadow-2xl sm:max-w-lg sm:rounded-[28px] sm:p-6">
+        <div className="mb-5 flex items-center justify-between">
+          <div>
+            <p className="font-mono text-xs font-bold text-secondary">PRICE CALCULATOR</p>
+            <h2 id="calculator-title" className="text-2xl font-extrabold">가격 미리 계산</h2>
+          </div>
+          <button onClick={onClose} className="grid h-11 w-11 place-items-center rounded-xl bg-soft" aria-label="닫기"><X /></button>
+        </div>
+
+        {!selectedItem ? (
+          <EmptyState text="계산할 수 있는 재고가 없습니다." />
+        ) : (
+          <>
+            <EditorField label="상품 선택">
+              <select value={selectedId} onChange={(event) => selectProduct(event.target.value)} className="editor-input">
+                {availableItems.map((item) => <option key={item.id} value={item.id}>{item.name} · {money(item.price)}</option>)}
+              </select>
+            </EditorField>
+
+            <div className="mt-4">
+              <span className="mb-2 block text-sm font-bold">몇 개를 구매하나요?</span>
+              <div className="grid grid-cols-[56px_1fr_56px] items-center gap-3">
+                <button type="button" onClick={() => setQuantity((value) => Math.max(1, Number(value) - 1))} className="grid h-14 place-items-center rounded-xl bg-soft text-primary" aria-label="수량 감소"><Minus /></button>
+                <input aria-label="구매 수량" type="number" inputMode="numeric" min="1" max={selectedItem.stock} value={quantity} onChange={(event) => setQuantity(Math.min(selectedItem.stock, Math.max(1, Number(event.target.value) || 1)))} className="h-14 w-full rounded-xl border border-line text-center font-mono text-2xl font-extrabold outline-none focus:border-primary" />
+                <button type="button" onClick={() => setQuantity((value) => Math.min(selectedItem.stock, Number(value) + 1))} className="grid h-14 place-items-center rounded-xl bg-primary text-white" aria-label="수량 증가"><Plus /></button>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-2xl bg-gradient-to-br from-indigo-50 to-violet-100 p-5">
+              <div className="flex justify-between text-sm font-bold text-muted"><span>단가</span><span className="font-mono">{money(selectedItem.price)}</span></div>
+              <div className="mt-2 flex justify-between text-sm font-bold text-muted"><span>수량</span><span className="font-mono">{safeQuantity}개</span></div>
+              <div className="mt-4 flex items-end justify-between border-t border-primary/15 pt-4 text-primary">
+                <span className="font-extrabold">예상 금액</span>
+                <span className="font-mono text-3xl font-extrabold" aria-live="polite">{money(calculatedTotal)}</span>
+              </div>
+              <p className="mt-2 text-right text-xs text-muted">구매 후 남은 재고 {selectedItem.stock - safeQuantity}개</p>
+            </div>
+
+            <button onClick={() => onAdd(selectedItem.id, safeQuantity)} className="mt-4 flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary to-secondary font-bold text-white shadow-glow">
+              <ShoppingBag size={20} aria-hidden="true" />이 수량을 주문에 담기
+            </button>
+          </>
+        )}
+      </section>
     </div>
   );
 }
