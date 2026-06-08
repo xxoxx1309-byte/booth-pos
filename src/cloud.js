@@ -22,6 +22,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const firestore = getFirestore(app);
+const BATCH_LIMIT = 400;
 
 async function hashSyncKey(syncKey) {
   const bytes = new TextEncoder().encode(syncKey.trim());
@@ -111,14 +112,44 @@ export async function commitCloudSale(boothId, sale, cart) {
 }
 
 export async function replaceCloudData(boothId, products, sales) {
-  const batch = writeBatch(firestore);
+  const productsCollection = collection(firestore, "booths", boothId, "products");
+  const salesCollection = collection(firestore, "booths", boothId, "sales");
+  const [currentProducts, currentSales] = await Promise.all([
+    getDocs(productsCollection),
+    getDocs(salesCollection),
+  ]);
+  const desiredProductIds = new Set(products.map(({ id }) => String(id)));
+  const desiredSaleIds = new Set(sales.map(({ id }) => String(id)));
+  const operations = [];
+
+  currentProducts.docs
+    .filter((entry) => !desiredProductIds.has(entry.id))
+    .forEach((entry) => operations.push((batch) => batch.delete(entry.ref)));
+  currentSales.docs
+    .filter((entry) => !desiredSaleIds.has(entry.id))
+    .forEach((entry) => operations.push((batch) => batch.delete(entry.ref)));
   products.forEach(({ id, stock }) => {
-    batch.set(doc(firestore, "booths", boothId, "products", String(id)), { id, stock });
+    operations.push((batch) =>
+      batch.set(doc(productsCollection, String(id)), { id, stock }),
+    );
   });
   sales.forEach((sale) => {
-    batch.set(doc(firestore, "booths", boothId, "sales", String(sale.id)), sale);
+    const normalizedSale = {
+      ...sale,
+      createdAt:
+        sale.createdAt ||
+        new Date(typeof sale.id === "number" ? sale.id : Date.now()).toISOString(),
+    };
+    operations.push((batch) =>
+      batch.set(doc(salesCollection, String(sale.id)), normalizedSale),
+    );
   });
-  await batch.commit();
+
+  for (let index = 0; index < operations.length; index += BATCH_LIMIT) {
+    const batch = writeBatch(firestore);
+    operations.slice(index, index + BATCH_LIMIT).forEach((operation) => operation(batch));
+    await batch.commit();
+  }
 }
 
 export function watchNetwork(onChange) {

@@ -66,6 +66,10 @@ function money(value) {
   return `₩${currency.format(Math.max(0, value))}`;
 }
 
+function createSaleId() {
+  return crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export default function App() {
   const [items, setItems] = useState(INITIAL_ITEMS);
   const [cart, setCart] = useState({});
@@ -165,7 +169,7 @@ export default function App() {
       return;
     }
     const sale = {
-      id: Date.now(),
+      id: createSaleId(),
       createdAt: new Date().toISOString(),
       time: new Date().toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" }),
       items: cartItems.map(({ id, name, price, quantity }) => ({ id, name, price, quantity })),
@@ -212,20 +216,21 @@ export default function App() {
     try {
       const connection = await connectCloud(normalizedKey, items, {
         onProducts: (products) => {
+          saveProducts(products).catch(() => setToast("로컬 재고 캐시 저장에 실패했습니다."));
           setItems((current) => {
-            const next = current.map((item) => ({
+            return current.map((item) => ({
               ...item,
               stock: products.find((entry) => entry.id === item.id)?.stock ?? item.stock,
             }));
-            saveProducts(next);
-            return next;
           });
         },
         onSales: (nextSales) => {
           setSales(nextSales);
-          saveSales(nextSales);
+          saveSales(nextSales).catch(() => setToast("로컬 판매 기록 캐시 저장에 실패했습니다."));
         },
         onError: () => {
+          cloudConnection.current?.disconnect();
+          cloudConnection.current = null;
           setSyncStatus("error");
           setToast("동기화 키가 올바르지 않거나 연결이 끊겼습니다.");
         },

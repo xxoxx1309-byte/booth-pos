@@ -70,6 +70,11 @@ function readLegacy(key, fallback) {
   }
 }
 
+function legacyCreatedAt(sale) {
+  const timestamp = typeof sale.id === "number" ? sale.id : Date.now();
+  return sale.createdAt || new Date(timestamp).toISOString();
+}
+
 async function migrateLegacyData() {
   if (await readSetting("legacyMigrated")) return;
 
@@ -84,7 +89,7 @@ async function migrateLegacyData() {
   legacySales.forEach((sale) =>
     sales.put({
       ...sale,
-      createdAt: sale.createdAt || new Date(sale.id || Date.now()).toISOString(),
+      createdAt: legacyCreatedAt(sale),
     }),
   );
   transaction.objectStore("settings").put({ key: "legacyMigrated", value: true });
